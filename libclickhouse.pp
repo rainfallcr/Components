@@ -38,16 +38,16 @@ const
 type
         {---- ClickHouse data formats ----}
         TClickHouseFormat = (
-            chfJSON,            { JSON формат }
-            chfJSONCompact,     { Компактный JSON }
-            chfCSV,             { CSV формат }
-            chfTSV,             { Tab-separated values }
-            chfTabSeparated,    { То же, что и TSV }
-            chfValues,          { Для INSERT запросов }
-            chfPretty,          { "Красивый" вывод таблицы }
-            chfVertical,        { Вертикальный формат }
-            chfNative,          { Нативный бинарный формат }
-            chfScalar           { Одиночный результат - ответ }
+            chfJSON,
+            chfJSONCompact,
+            chfCSV,
+            chfTSV,
+            chfTabSeparated,
+            chfValues,
+            chfPretty,
+            chfVertical,
+            chfNative,
+            chfScalar
         );
 
         {---- Request results ----}
