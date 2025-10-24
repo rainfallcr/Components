@@ -4,25 +4,25 @@
     Copyright (c) 2018-2019 Karoly Balogh <charlie@amigaspirit.hu>
     Copyright (c) 2025 Andrew Rachuk <Interdnestrcom>
 
-    Version 2.2
+    Version 25.10.24
 
-    Возможности:
-        - Подключение к MQTT брокеру (TCP/SSL)
-        - Публикация сообщений с QoS
-        - Подписка/отписка от топиков
-        - Обработка событий (сообщения, подключение, отключение)
-        - Thread-safe колбэки
-        - Поддержка Last Will
-        - Поддержка MQTT 3.1, 3.1.1, 5.0
-        - Полная поддержка TLS (client certificates)
+    Features:
+       - Connection to MQTT broker (TCP/SSL)
+       - Publishing messages with QoS
+       - Subscribing/unsubscribing to topics
+       - Event handling (messages, connection, disconnection)
+       - Thread-safe callbacks
+       - Support for Last Will
+       - Support for MQTT 3.1, 3.1.1, 5.0
+       - Full TLS support (client certificates)
 
-    Требования:
-        - Mosquitto library (libmosquitto.so/dll)
-        - Free Pascal с модулями classes, ctypes, sysutils, syncobjs
+   Requirements:
+       - Mosquitto library (libmosquitto.so/dll)
+       - Free Pascal with modules classes, ctypes, sysutils, syncobjs
 
-    Примечание:
-        Библиотека thread-safe (защищены мьютексом) для колбэков, методов Connect/Disconnect/Publish/Subscribe
-        т.е. можно безопасно использовать один экземпляр из разных потоков!
+   Note:
+       The library is thread-safe (protected by mutex) for callbacks and methods Connect/Disconnect/Publish/Subscribe
+       i.e. you can safely use one instance from different threads!
 }
 {$MODE OBJFPC}
 {$H+}
@@ -305,7 +305,7 @@ begin
         //FConfig.reconnect_delay_max := 0; { 0 = auto (delay * 30) }
         FConfig.reconnect_backoff := true;
         FConfig.ssl_verify_peer := true;
-        FConfig.protocol_version := MOSQ_PROTOCOL_V31;
+        FConfig.protocol_version := C_PROTOCOL_V31;
 
         if (not libInited) then
             mqtt_init(false);
@@ -416,7 +416,7 @@ begin
         if (FConfig.Will_topic <> '') then
         begin
             res := mosquitto_will_set(FMosq, pchar(FConfig.Will_topic), Length(FConfig.Will_payload), pchar(FConfig.Will_payload), FConfig.will_qos, FConfig.will_retain);
-            if (res <> MOSQ_ERR_SUCCESS) then
+            if (res <> C_ERR_SUCCESS) then
             begin
                 mosquitto_destroy(FMosq);
                 FMosq := nil;
@@ -430,7 +430,7 @@ begin
         if (FConfig.ssl) then
         begin
             res := mosquitto_tls_set(FMosq, pchar(FConfig.Ssl_cacertfile), pchar(FConfig.Ssl_capath), pchar(FConfig.Ssl_certfile), pchar(FConfig.Ssl_keyfile), nil);
-            if (res <> MOSQ_ERR_SUCCESS) then
+            if (res <> C_ERR_SUCCESS) then
             begin
                 mosquitto_destroy(FMosq);
                 FMosq := nil;
@@ -442,7 +442,7 @@ begin
             if (not FConfig.ssl_verify_peer) then
             begin
                 res := mosquitto_tls_insecure_set(FMosq, true);
-                if (res <> MOSQ_ERR_SUCCESS) then
+                if (res <> C_ERR_SUCCESS) then
                 begin
                     mosquitto_destroy(FMosq);
                     FMosq := nil;
@@ -457,7 +457,7 @@ begin
         if (FConfig.Username <> '') then
         begin
             res := mosquitto_username_pw_set(FMosq, pchar(FConfig.Username), pchar(FConfig.Password));
-            if (res <> MOSQ_ERR_SUCCESS) then
+            if (res <> C_ERR_SUCCESS) then
             begin
                 mosquitto_destroy(FMosq);
                 FMosq := nil;
@@ -472,7 +472,7 @@ begin
             FConfig.reconnect_delay_max := (FConfig.reconnect_delay * 30);
 
         res := mosquitto_reconnect_delay_set(FMosq, FConfig.reconnect_delay, FConfig.reconnect_delay_max, FConfig.reconnect_backoff);
-        if (res <> MOSQ_ERR_SUCCESS) then
+        if (res <> C_ERR_SUCCESS) then
         begin
             mosquitto_destroy(FMosq);
             FMosq := nil;
@@ -485,7 +485,7 @@ begin
         SetState(st_Connecting);
 
         res := mosquitto_connect(FMosq, pchar(FConfig.Hostname), FConfig.port, FConfig.keepalives);
-        if (res <> MOSQ_ERR_SUCCESS) then
+        if (res <> C_ERR_SUCCESS) then
         begin
             SetState(st_Disconnected);
 
@@ -498,7 +498,7 @@ begin
 
         {---- Starup main loop cycle ----}
         res := mosquitto_loop_start(FMosq);
-        if (res <> MOSQ_ERR_SUCCESS) then
+        if (res <> C_ERR_SUCCESS) then
         begin
             SetState(st_Disconnected);
 
@@ -527,6 +527,55 @@ begin
     try
         if (not Assigned(FMosq)) then
         begin
+            SetState(st_Disconnected);
+            FLastError := 'Not connected';
+
+            exit(true);
+        end;
+
+        res := mosquitto_disconnect(FMosq);
+        if (res <> C_ERR_SUCCESS) then
+            FLastError := format('Disconnect failed: %s', [mosquitto_strerror(res)]);
+
+    finally
+        FMutex.Leave();
+    end;
+
+        {---- Loop_stop outside mutex to avoid deadlock with callbacks ----}
+        res := mosquitto_loop_stop(FMosq, true);
+        if (res <> C_ERR_SUCCESS) then
+        begin
+            if (FLastError <> '') then
+                FLastError += ' / ';
+
+            FLastError += format('Loop stop failed: %s', [mosquitto_strerror(res)]);
+        end;
+
+        FMutex.Enter();
+    try
+        mosquitto_destroy(FMosq);
+        FMosq := nil;
+
+        SetState(st_Disconnected);
+
+        result := true;
+
+    finally
+        FMutex.Leave();
+    end;
+end;
+{
+function TMQTTConnection.Disconnect(): boolean;
+var
+        res: cint;
+begin
+        result := false;
+        FLastError := '';
+
+        FMutex.Enter();
+    try
+        if (not Assigned(FMosq)) then
+        begin
             SetState(st_None);
             FLastError := 'Not connected';
 
@@ -534,11 +583,11 @@ begin
         end;
 
         res := mosquitto_disconnect(FMosq);
-        if (res <> MOSQ_ERR_SUCCESS) then
+        if (res <> C_ERR_SUCCESS) then
             FLastError := format('Disconnect failed: %s', [mosquitto_strerror(res)]);
 
         res := mosquitto_loop_stop(FMosq, true);
-        if (res <> MOSQ_ERR_SUCCESS) then
+        if (res <> C_ERR_SUCCESS) then
         begin
             if (FLastError <> '') then
                 FLastError += ' / ';
@@ -556,6 +605,7 @@ begin
         FMutex.Leave();
     end;
 end;
+}
 {---------------------------------------------------------------------------------------------------------------------}
 function TMQTTConnection.ReConnect(): boolean;
 var
@@ -575,7 +625,7 @@ begin
         SetState(st_ReConnecting);
 
         res := mosquitto_reconnect(FMosq);
-        if (res = MOSQ_ERR_SUCCESS) then
+        if (res = C_ERR_SUCCESS) then
             exit(true)
         else
         begin
@@ -592,7 +642,7 @@ function TMQTTConnection.Publish(const Topic, Payload: string; qos: cint = 0; re
 var
         res, mid: cint;
 begin
-        result := MOSQ_ERR_NO_CONN;
+        result := C_ERR_NO_CONN;
         FLastError := '';
 
         FMutex.Enter();
@@ -622,7 +672,7 @@ begin
         end;
 
         res := mosquitto_publish(FMosq, @mid, pchar(Topic), Length(Payload), pchar(Payload), qos, retain);
-        if (res <> MOSQ_ERR_SUCCESS) then
+        if (res <> C_ERR_SUCCESS) then
         begin
             FLastError := format('Publish failed: %s', [mosquitto_strerror(res)]);
             exit();
@@ -639,7 +689,7 @@ function TMQTTConnection.Subscribe(const Topic: string; qos: cint = 0): cint;
 var
         res, mid: cint;
 begin
-        result := MOSQ_ERR_NO_CONN;
+        result := C_ERR_NO_CONN;
         FLastError := '';
 
         FMutex.Enter();
@@ -669,7 +719,7 @@ begin
         end;
 
         res := mosquitto_subscribe(FMosq, @mid, pchar(Topic), qos);
-        if (res <> MOSQ_ERR_SUCCESS) then
+        if (res <> C_ERR_SUCCESS) then
         begin
             FLastError := format('Subscribe failed: %s', [mosquitto_strerror(res)]);
             exit();
@@ -686,7 +736,7 @@ function TMQTTConnection.Unsubscribe(const Topic: string): cint;
 var
         res, mid: cint;
 begin
-        result := MOSQ_ERR_NO_CONN;
+        result := C_ERR_NO_CONN;
         FLastError := '';
 
         FMutex.Enter();
@@ -710,7 +760,7 @@ begin
         end;
 
         res := mosquitto_unsubscribe(FMosq, @mid, pchar(Topic));
-        if (res <> MOSQ_ERR_SUCCESS) then
+        if (res <> C_ERR_SUCCESS) then
         begin
             FLastError := format('Unsubscribe failed: %s', [mosquitto_strerror(res)]);
             exit();
@@ -732,7 +782,7 @@ begin
         if (libInited) then
             exit();
 
-        libInited := (mosquitto_lib_init() = MOSQ_ERR_SUCCESS);
+        libInited := (mosquitto_lib_init() = C_ERR_SUCCESS);
         if (not libInited) then
         begin
             if (verbose) then
@@ -746,7 +796,7 @@ begin
             mosquitto_lib_version(@major, @minor, @revision);
 
             writeln(format('[MQTT] Compiled against mosquitto header version %d.%d.%d',
-                            [LIBMOSQUITTO_MAJOR, LIBMOSQUITTO_MINOR, LIBMOSQUITTO_REVISION]));
+                            [libMosquitto_Major, libMosquitto_Minor, libMosquitto_Revision]));
 
             writeln(format('[MQTT] Running against libmosquitto version %d.%d.%d',
                             [major, minor, revision]));
@@ -758,28 +808,28 @@ end;
 function mqtt_loglevel_to_str(const loglevel: cint): string;
 begin
         case (loglevel) of
-            MOSQ_LOG_INFO:
+            C_LOG_INFO:
                 Result := 'INFO';
             //----
-            MOSQ_LOG_NOTICE:
+            C_LOG_NOTICE:
                 Result := 'NOTICE';
             //----
-            MOSQ_LOG_WARNING:
+            C_LOG_WARNING:
                 Result := 'WARNING';
             //----
-            MOSQ_LOG_ERR:
+            C_LOG_ERR:
                 Result := 'ERROR';
             //----
-            MOSQ_LOG_DEBUG:
+            C_LOG_DEBUG:
                 Result := 'DEBUG';
             //----
-            MOSQ_LOG_SUBSCRIBE:
+            C_LOG_SUBSCRIBE:
                 Result := 'SUBSCRIBE';
             //----
-            MOSQ_LOG_UNSUBSCRIBE:
+            C_LOG_UNSUBSCRIBE:
                 Result := 'UNSUBSCRIBE';
             //----
-            MOSQ_LOG_WEBSOCKETS:
+            C_LOG_WEBSOCKETS:
                 Result := 'WEBSOCKETS';
             //----
             else
