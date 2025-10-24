@@ -1,27 +1,27 @@
 unit libclickhouse;
 {-----------------------------------------------------------------------------------------------------------------------
-    ClickHouse HTTP Client Library for Free Pascal / Delphi (Lazarus)
+    ClickHouse HTTP Client Library for Free Pascal (Lazarus, Delphi)
     Copyright (c) 2025 by Andrew Rachuk, <Interdnestrcom>
 
-    Version 3.2
+    Version 25.10.24
 
-    Возможности:
-        - Выполнение SQL запросов через HTTP API ClickHouse
-        - Поддержка различных форматов данных (JSON, JSONCompact, CSV, TSV + WithNames variants)
-        - Управление соединением и таймаутами
-        - Обработка ошибок
+    Features:
+       - Execution of SQL queries via ClickHouse HTTP API
+       - Support for various data formats (JSON, JSONCompact, CSV, TSV + WithNames variants)
+       - Connection and timeout management
+       - Error handling
 
-        - Пакетная вставка данных - (в проекте)
-        - Защита от SQL-инъекций - (пересмотреть!)
+       - Batch data insertion - (in development)
+       - Protection against SQL injections - (to be reviewed!)
 
-    Требования:
-        - Synapse (httpsend, synautil)
-        - ClickHouse сервер с открытым HTTP портом (по умолчанию 8123)
+   Requirements:
+       - Synapse (httpsend, synautil)
+       - ClickHouse server with an open HTTP port (default 8123)
 
-    Примечание:
-        - Библиотека не является потокобезопасной!
-          Используйте отдельный экземпляр TClickHouseConnection для каждого потока или 
-          синхронизируйте доступ извне (например, через мьютексы).
+   Note:
+       - The library is not thread-safe!
+         Use a separate instance of TClickHouseConnection for each thread or 
+         synchronize access externally (for example, via mutexes).
 -----------------------------------------------------------------------------------------------------------------------}
 interface
 {----------------------------------------------------------------------------------------------------------------------}
