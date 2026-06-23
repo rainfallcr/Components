@@ -6,17 +6,18 @@ uses
         libcommon;
 {----------------------------------------------------------------------------------------------------------------------}
 type
-        r_kvitem = record
+        p_kvItem = ^r_kvItem;
+        r_kvItem = record
             KEY,
             VAL: string;
         end;
 
-        p_kvitems = ^t_kvitems;
-        t_kvitems = array[0..MaxLongInt] of r_kvitem;
+        p_kvItems = ^t_kvItems;
+        t_kvItems = array[0..MaxLongInt] of p_kvItem;
 
-        ts_kvlist = class
+        ts_kvList = class
         private
-            fl: p_kvitems;
+            fl: p_kvItems;
 
             fc,
             fs, fds,
@@ -54,8 +55,8 @@ type
             procedure set_upkeys(fA: bool);
             procedure insert(i: longint; const SKEY, VAL: string);
 
-            function bfind(const SKEY: string; var i: longint): bool;
-            function lfind(const SKEY: string; var i: longint): bool;
+            function bFind(const SKEY: string; var i: longint): bool;
+            function lFind(const SKEY: string; var i: longint): bool;
 
             procedure qsort(il, ir: longint);
             procedure exchange(index1, index2: longint);
@@ -93,7 +94,7 @@ implementation
 uses
         sysUtils;
 {----------------------------------------------------------------------------------------------------------------------}
-constructor ts_kvlist.Create(ds: longint = C_2K);
+constructor ts_kvList.Create(ds: longint = C_2K);
 begin
         inherited Create();
 
@@ -115,74 +116,80 @@ begin
         fUpKeys := false;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-destructor ts_kvlist.Destroy();
+destructor ts_kvList.Destroy();
 begin
         Clear();
 
         fmtx.Free();
 
-        freeMem(fl); // set_size(0);
+        FreeMem(fl);
 
         inherited Destroy();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function ts_kvlist.get_key(i: longint): string;
+function ts_kvList.get_key(i: longint): string;
 begin
         fmtx.Lock();
 
         if (i >= 0)and(i < fc) then
-            Result := fl^[i].KEY
+            Result := fl^[i]^.KEY
         else
             Result := '';
 
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function ts_kvlist.get_val(i: longint): string;
+function ts_kvList.get_val(i: longint): string;
 begin
         fmtx.Lock();
 
         if (i >= 0)and(i < fc) then
-            Result := fl^[i].VAL
+            Result := fl^[i]^.VAL
         else
             Result := '';
 
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function ts_kvlist.get_line(i: longint): string;
+function ts_kvList.get_line(i: longint): string;
 begin
         fmtx.Lock();
 
         if (i >= 0)and(i < fc) then
-            Result := format('%s%sd%s', [fl^[i].KEY, FSeparator, fl^[i].VAL])
+            Result := format('%s%s%s', [fl^[i]^.KEY, FSeparator, fl^[i]^.VAL])
         else
             Result := '';
 
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function ts_kvlist.get_kval(const SKEY: string): string;
+function ts_kvList.get_kval(const SKEY: string): string;
 var
+        LKEY: string = '';
         i: longint = 0;
-        fR: bool = false;
+        fRes: bool = false;
 begin
+        if (fUpKeys) then
+            LKEY := upCase(SKEY)
+        else
+            LKEY := SKEY;
+
         fmtx.Lock();
 
         if (fSorted) then
-            fR := bfind(SKEY, i)
+            fRes := bFind(LKEY, i)
         else
-            fR := lfind(SKEY, i);
+            fRes := lFind(LKEY, i);
 
-        if (fR) then
-            Result := fl^[i].VAL
+        if (fRes) then
+            Result := fl^[i]^.VAL
         else
             Result := '';
 
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function ts_kvlist.get_text: string;
+function ts_kvList.get_text: string;
 var
         i: longint = 0;
 begin
@@ -191,61 +198,59 @@ begin
         Result := '';
 
         for i := 0 to (fc-1) do
-            Result += format('%s%s%s%s', [fl^[i].KEY, FSeparator, fl^[i].VAL, FDelimiter]);
+            Result += format('%s%s%s%s', [fl^[i]^.KEY, FSeparator, fl^[i]^.VAL, FDelimiter]);
 
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function ts_kvlist.get_keys: string;
+function ts_kvList.get_keys: string;
 var
         i: longint = 0;
 begin
+        fmtx.Lock();
+
         if (fc > 0) then
         begin
-            fmtx.Lock();
+            Result := fl^[0]^.KEY;
 
-            Result := fl^[0].KEY;
-
-            for i := 1 to (fc-1) do
-                Result += FSpliter + fl^[i].KEY;
-
-            fmtx.unLock();
+            for i := 1 to (fc - 1) do
+                Result += FSpliter + fl^[i]^.KEY;
         end
         else
             Result := '';
+
+        fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.set_key(i: longint; const SKEY: string);
+procedure ts_kvList.set_key(i: longint; const SKEY: string);
 begin
+        fmtx.Lock();
+
         if (i >= 0)and(i < fc) then
         begin
-            fmtx.Lock();
-
             if (fUpKeys) then
-                fl^[i].KEY := upCase(SKEY)
+                fl^[i]^.KEY := upCase(SKEY)
             else
-                fl^[i].KEY := SKEY;
+                fl^[i]^.KEY := SKEY;
 
             if (fSorted) then
                 qSort(0, fc-1);
-
-            fmtx.unLock();
         end;
+
+        fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.set_val(i: longint; const VAL: string);
+procedure ts_kvList.set_val(i: longint; const VAL: string);
 begin
+        fmtx.Lock();
+
         if (i >= 0)and(i < fc) then
-        begin
-            fmtx.Lock();
+            fl^[i]^.VAL := VAL;
 
-            fl^[i].VAL := VAL;
-
-            fmtx.unLock();
-        end;
+        fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.set_kval(const SKEY, VAL: string);
+procedure ts_kvList.set_kval(const SKEY, VAL: string);
 var
         LKEY: string = '';
         i: longint = (-1);
@@ -259,19 +264,19 @@ begin
         fmtx.Lock();
 
         if (fSorted) then
-            fR := bfind(LKEY, i)
+            fR := bFind(LKEY, i)
         else
-            fR := lfind(LKEY, i);
+            fR := lFind(LKEY, i);
 
         if (fR) then
-            fl^[i].VAL := VAL
+            fl^[i]^.VAL := VAL
         else
             Insert(i, LKEY, VAL);
 
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.set_text(const STR: string);
+procedure ts_kvList.set_text(const STR: string);
 var
         LSTR: string = '';
         i: longint = 0;
@@ -282,7 +287,7 @@ begin
         Clear();
 
         LSTR := STR;
-        if (rightStr(STR, fdlen) <> FDelimiter) then
+        if (RightStr(STR, fdlen) <> FDelimiter) then
             LSTR += FDelimiter;
 
         repeat
@@ -305,7 +310,7 @@ begin
         until (LSTR = '');
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.set_keys(const STR: string);
+procedure ts_kvList.set_keys(const STR: string);
 var
         LSTR: string = '';
         i: longint = 0;
@@ -336,7 +341,7 @@ begin
         until (LSTR = '');
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.set_delimiter(const STR: string);
+procedure ts_kvList.set_delimiter(const STR: string);
 begin
         fmtx.Lock();
 
@@ -346,22 +351,26 @@ begin
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.set_separator(const STR: string);
+procedure ts_kvList.set_separator(const STR: string);
 begin
         fmtx.Lock();
+
         FSeparator := STR;
+
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.set_spliter(const STR: string);
+procedure ts_kvList.set_spliter(const STR: string);
 begin
         fmtx.Lock();
+
         FSpliter := STR;
         fslen := length(FSpliter);
+
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function ts_kvlist.bfind(const SKEY: string; var i: longint): bool;
+function ts_kvList.bFind(const SKEY: string; var i: longint): bool;
 var
         l, r, p, cmp: longint;
 begin
@@ -375,7 +384,7 @@ begin
         while (l <= r) do
         begin
             p := l + ((r - l) shr 1);
-            cmp := ansiCompareStr(SKEY, fl^[p].KEY);
+            cmp := AnsiCompareStr(SKEY, fl^[p]^.KEY);
 
             if (cmp > 0) then
                 l := p + 1
@@ -391,61 +400,32 @@ begin
 
         i := l;
 end;
-{
-function ts_kvlist.bfind(const SKEY: string; var i: longint): bool;
-var
-        l, r, p: longint;
-begin
-        result := false;
-        i := (-1);
-
-        l := 0;
-        r := (fc - 1);
-
-        while (l <= r) do
-        begin
-            p := l + ((r - l) div 2);
-            if (ansiCompareStr(SKEY, fl^[p].KEY) > 0) then
-                l := p + 1
-            else
-            begin
-                r := p - 1;
-                if (ansiCompareStr(SKEY, fl^[p].KEY) = 0) then
-                begin
-                    result := true;
-                    l := p; // quit from while loop
-                end;
-            end;
-        end;
-        i := l;
-end;
-}
 {----------------------------------------------------------------------------------------------------------------------}
-function ts_kvlist.lfind(const SKEY: string; var i: longint): bool;
+function ts_kvList.lFind(const SKEY: string; var i: longint): bool;
 begin
         result := false;
 
         i := 0;
 
         while (i < fc)and(not result) do
-            if (ansiCompareStr(SKEY, fl^[i].KEY) <> 0) then
+            if (AnsiCompareStr(SKEY, fl^[i]^.KEY) <> 0) then
                 inc(i)
             else
                 result := true;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.set_size(ns: longint);
+procedure ts_kvList.set_size(ns: longint);
 begin
         fmtx.Lock();
 
         fs := ns;
 
-        reAllocMem(fl, fs*sizeOf(r_kvitem));
+        ReAllocMem(fl, fs*sizeOf(p_kvitem));
 
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.set_sorted(fA: bool);
+procedure ts_kvList.set_sorted(fA: bool);
 begin
         fmtx.Lock();
 
@@ -457,7 +437,7 @@ begin
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.set_upkeys(fA: bool);
+procedure ts_kvList.set_upkeys(fA: bool);
 var
         i: longint;
 begin
@@ -465,84 +445,76 @@ begin
 
         if (fA)and(not fUpKeys)and(fc > 0) then
             for i := 0 to (fc-1) do
-                fl^[i].KEY := upCase(fl^[i].KEY);
+                fl^[i]^.KEY := upCase(fl^[i]^.KEY);
 
         fUpKeys := fA;
 
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.qsort(il, ir: longint);
+procedure ts_kvList.qsort(il, ir: longint);
 var
-        i, j, p: longint;
+        i, j: longint;
+        pivot: p_kvItem;
 begin
-        if ((ir - il) <= 1) then
-        begin
-            if (il < ir) then
-                if (ansiCompareStr(fl^[il].KEY, fl^[ir].KEY) > 0) then
-                    exchange(il, ir);
+        if (il >= ir) then
             exit();
-        end;
 
         i := il;
         j := ir;
-        p := (il + Random(ir - il));
 
-        while (i < j) do
+        pivot := fl^[(il + ir) shr 1];
+
+        while (i <= j) do
         begin
-            while (i < p)and(ansiCompareStr(fl^[i].KEY, fl^[p].KEY) <= 0) do
+            while (ansiCompareStr(fl^[i]^.KEY, pivot^.KEY) < 0) do
                 inc(i);
 
-            while (j > p)and(ansiCompareStr(fl^[j].KEY, fl^[p].KEY) > 0) do
+            while (ansiCompareStr(fl^[j]^.KEY, pivot^.KEY) > 0) do
                 dec(j);
 
-            exchange(i, j);
+            if (i <= j) then
+            begin
+                exchange(i, j);
 
-            if (p = i) then
-                p := j
-            else
-                if (p = j) then
-                    p := i;
-
-            if ((p - 1) >= il) then
-                qSort(il, p-1);
-
-            if ((p + 1) <= ir) then
-                qSort(p+1, ir);
+                inc(i);
+                dec(j);
+            end;
         end;
+
+        if (il < j) then
+            qsort(il, j);
+
+        if (i < ir) then
+            qsort(i, ir);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.exchange(index1, index2: longint);
+procedure ts_kvList.exchange(index1, index2: longint);
 var
-        p1, p2: pointer;
+        p: p_kvItem;
 begin
-        p1 := pointer(fl^[index1].KEY);
-        p2 := pointer(fl^[index1].VAL);
-
-        pointer(fl^[index1].KEY) := pointer(fl^[index2].KEY);
-        pointer(fl^[index1].VAL) := pointer(fl^[index2].VAL);
-
-        pointer(fl^[index2].KEY) := p1;
-        pointer(fl^[index2].VAL) := p2;
+        p := fl^[index1];
+        fl^[index1] := fl^[index2];
+        fl^[index2] := p;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.insert(i: longint; const SKEY, VAL: string);
+procedure ts_kvList.insert(i: longint; const SKEY, VAL: string);
+var
+        newItem: p_kvItem;
 begin
         if (i < fc) then
-            system.Move(fl^[i], fl^[i+1], (fc-i)*sizeOf(r_kvitem));
+            system.Move(fl^[i], fl^[i+1], (fc-i)*sizeOf(p_kvItem));
 
-        {---- strange, but it's work ----}
-        pointer(fl^[i].KEY) := nil;
-        pointer(fl^[i].VAL) := nil;
+        New(newItem);
+        newItem^.KEY := SKEY;
+        newItem^.VAL := VAL;
 
-        fl^[i].KEY := SKEY;
-        fl^[i].VAL := VAL;
-
+        fl^[i] := newItem;
         inc(fc);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 {----------------------------------------------------------------------------------------------------------------------}
-function ts_kvlist.Add(const SKEY, VAL: string): longint;
+function ts_kvList.Add(const SKEY, VAL: string): longint;
 var
         nsize: longword = 0;
         LKEY: string ='';
@@ -551,9 +523,11 @@ begin
         result := (-1);
 
         if (fUpKeys) then
-            LKEY := upCase(SKEY)
+            LKEY := UpCase(SKEY)
         else
             LKEY := SKEY;
+
+        fmtx.Lock();
 
         if (fc = fs) then
         begin
@@ -564,20 +538,18 @@ begin
             set_size(nsize);
         end;
 
-        fmtx.Lock();
-
         if (fSorted) then
-            fRes := bfind(LKEY, result)
+            fRes := bFind(LKEY, result)
         else
             result := fc;
 
         if (not fRes) then
-            Insert(result, LKEY, VAL);
+            insert(result, LKEY, VAL);
 
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function ts_kvlist.Add(const STR: string): longint;
+function ts_kvList.Add(const STR: string): longint;
 var
         i: longint;
 begin
@@ -589,18 +561,24 @@ begin
             result := self.Add(STR, '');
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function ts_kvlist.indexOf(const SKEY: string): longint;
+function ts_kvList.indexOf(const SKEY: string): longint;
 var
+        LKEY: string = '';
         fRes: bool;
 begin
         result := (-1);
 
+        if (fUpKeys) then
+            LKEY := UpCase(SKEY)
+        else
+            LKEY := SKEY;
+
         fmtx.Lock();
 
         if (fSorted) then
-            fRes := bfind(SKEY, result)
+            fRes := bFind(LKEY, result)
         else
-            fRes := lfind(SKEY, result);
+            fRes := lFind(LKEY, result);
 
         fmtx.unLock();
 
@@ -608,48 +586,70 @@ begin
             result := (-1);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function ts_kvlist.Remove(const SKEY: string): bool;
+function ts_kvList.Remove(const SKEY: string): bool;
 var
+        LKEY: string = '';
         i: longint = 0;
 begin
+        if (fUpKeys) then
+            LKEY := UpCase(SKEY)
+        else
+            LKEY := SKEY;
+
         fmtx.Lock();
 
         if (fSorted) then
-            result := bfind(SKEY, i)
+            result := bFind(LKEY, i)
         else
-            result := lfind(SKEY, i);
-
-        fmtx.unLock();
+            result := lFind(LKEY, i);
 
         if (result) then
             self.Delete(i);
+
+        fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.Clear();
+procedure ts_kvList.Clear();
+var
+        i: longint;
 begin
-        while (fc > 0) do
-            self.Delete(fc-1);
+        fmtx.Lock();
+
+        for i := 0 to (fc - 1) do
+        begin
+            Dispose(fl^[i]);
+            fl^[i] := nil;
+        end;
+
+        fc := 0;
+
+        if (fs > fds) then
+            set_size(fds);
+
+        fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure ts_kvlist.Delete(i: longint);
+procedure ts_kvList.Delete(i: longint);
 begin
+        fmtx.Lock();
+
         if (i >= 0)and(i < fc) then
         begin
-            fmtx.Lock();
-
-            fl^[i].KEY := '';
-            fl^[i].VAL := '';
+            Dispose(fl^[i]);
+            fl^[i] := nil;
 
             dec(fc);
 
             if (i < fc) then
-                system.Move(fl^[i+1], fl^[i], (fc-i)*sizeOf(r_kvitem));
+                system.Move(fl^[i+1], fl^[i], (fc-i)*sizeOf(p_kvItem));
 
-            fmtx.unLock();
+            fl^[fc] := nil;
 
             if (fs > fds)and(fc < fds) then
                 set_size(fds);
         end;
+
+        fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 {----------------------------------------------------------------------------------------------------------------------}

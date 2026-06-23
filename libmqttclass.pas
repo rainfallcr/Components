@@ -324,6 +324,7 @@ begin
         end;
 
     finally
+
         FMutex.Leave();
     end;
         FreeAndNil(FMutex);
@@ -349,9 +350,14 @@ function TMQTTConnection.Connect(): boolean;
 var
         res: cint;
         CLIENT_ID: pchar;
+        old_mosq: Pmosquitto;
 begin
         result := false;
         FLastError := '';
+
+        old_mosq := FMosq;
+        if (Assigned(old_mosq)) then
+            mosquitto_loop_stop(old_mosq, true);
 
         FMutex.Enter();
     try
@@ -387,8 +393,6 @@ begin
 
         if (Assigned(FMosq)) then
         begin
-            mosquitto_loop_stop(FMosq, true);
-
             mosquitto_destroy(FMosq);
             FMosq := nil;
         end;
@@ -397,6 +401,7 @@ begin
         if (FConfig.Client_id <> '') then
             CLIENT_ID := pchar(FConfig.Client_id);
 
+        {---- If Client_id is empty, mosquitto will generate a random client ID ----}
         FMosq := mosquitto_new(CLIENT_ID, true, self);
         if (not Assigned(FMosq)) then
         begin
@@ -564,48 +569,6 @@ begin
         FMutex.Leave();
     end;
 end;
-{
-function TMQTTConnection.Disconnect(): boolean;
-var
-        res: cint;
-begin
-        result := false;
-        FLastError := '';
-
-        FMutex.Enter();
-    try
-        if (not Assigned(FMosq)) then
-        begin
-            SetState(st_None);
-            FLastError := 'Not connected';
-
-            exit(true);
-        end;
-
-        res := mosquitto_disconnect(FMosq);
-        if (res <> C_ERR_SUCCESS) then
-            FLastError := format('Disconnect failed: %s', [mosquitto_strerror(res)]);
-
-        res := mosquitto_loop_stop(FMosq, true);
-        if (res <> C_ERR_SUCCESS) then
-        begin
-            if (FLastError <> '') then
-                FLastError += ' / ';
-
-            FLastError += format('Loop stop failed: %s', [mosquitto_strerror(res)]);
-        end;
-
-        mosquitto_destroy(FMosq);
-        FMosq := nil;
-
-        SetState(st_Disconnected);
-        result := true;
-
-    finally
-        FMutex.Leave();
-    end;
-end;
-}
 {---------------------------------------------------------------------------------------------------------------------}
 function TMQTTConnection.ReConnect(): boolean;
 var

@@ -38,16 +38,16 @@ const
 type
         {---- ClickHouse data formats ----}
         TClickHouseFormat = (
-            chfJSON,
-            chfJSONCompact,
-            chfCSV,
-            chfTSV,
-            chfTabSeparated,
-            chfValues,
-            chfPretty,
-            chfVertical,
-            chfNative,
-            chfScalar
+            chfJSON,            { JSON формат }
+            chfJSONCompact,     { Компактный JSON }
+            chfCSV,             { CSV формат }
+            chfTSV,             { Tab-separated values }
+            chfTabSeparated,    { То же, что и TSV }
+            chfValues,          { Для INSERT запросов }
+            chfPretty,          { "Красивый" вывод таблицы }
+            chfVertical,        { Вертикальный формат }
+            chfNative,          { Нативный бинарный формат }
+            chfScalar           { Одиночный результат - ответ }
         );
 
         {---- Request results ----}
@@ -58,13 +58,13 @@ type
             FColumns: TStringList;
             FRows: TList;
 
-            FRowCount: longint;
+            frowCount: longint;
 
             FRawData,
             FError: string;
 
-            FSuccess,
-            FWithNames: boolean;
+            fSuccess,
+            fWithNames: boolean;
 
             procedure ParseJSON();
             procedure ParseCSV();
@@ -72,7 +72,7 @@ type
             procedure ParseScalar();
 
         public
-            constructor Create(AFormat: TClickHouseFormat = chfTSV; AWithNames: boolean = true);
+            constructor Create(AFormat: TClickHouseFormat = chfTSV; aWithNames: boolean = true);
             destructor Destroy(); override;
 
             function GetValueByName(ARow: longint; const AColumnName: string): string;
@@ -86,10 +86,10 @@ type
             property RAWDATA: string read FRawData;
             property ERROR: string read FError;
             property Format: TClickHouseFormat read FFormat;
-            property RowCount: longint read FRowCount;
+            property RowCount: longint read frowCount;
             property Columns: TStringList read FColumns;
-            property Success: boolean read FSuccess;
-            property WithNames: boolean read FWithNames;
+            property Success: boolean read fSuccess;
+            property WithNames: boolean read fWithNames;
         end;
 
         {---- Main ClickHouse class ----}
@@ -102,9 +102,9 @@ type
             FBaseURL,
             FLastError: string;
 
-            FPort,
-            FTimeout,
-            FResultCode: longint;
+            fport,
+            ftimeout,
+            fresultCode: longint;
 
             FConnected: boolean;
 
@@ -124,9 +124,9 @@ type
 
         public
             constructor Create(const FH: string = 'localhost'; fp: longint = C_DEF_CLICKHOUSE_PORT);
-            destructor Destroy(); override;
+            destructor  Destroy(); override;
 
-            function Connect(): boolean;
+            function  Connect(): boolean;
             procedure Disconnect();
 
             function Ping(): boolean;
@@ -157,16 +157,16 @@ type
             function GetServerVersion(): string;
             function GetCurrentDatabase(): string;
 
-            property HOST: string read FHOST write set_fhost;
-            property port: longint read FPort write set_fport;
+            property Host: string read FHost write set_fhost;
+            property port: longint read fport write set_fport;
 
-            property BASEURL: string read FBaseURL;
+            property BaseURL: string read FBaseURL;
 
-            property DATABASE: string read FDatabase write FDatabase;
-            property USERNAME: string read FUsername write FUsername;
-            property PASSWORD: string read FPassword write FPassword;
+            property Database: string read FDatabase write FDatabase;
+            property Username: string read FUsername write FUsername;
+            property Password: string read FPassword write FPassword;
 
-            property LASTERROR: string read FLastError;
+            property LastError: string read FLastError;
             property resultCode: longint read FResultCode;
 
             property timeout: longint read FTimeout write FTimeout;
@@ -183,14 +183,14 @@ type
             FGroupBy,
             FOrderBy: TStringList;
 
-            FFROM: string;
+            FFrom: string;
 
             FLimit,
             FOffset: longint;
 
         public
             constructor Create();
-            destructor Destroy(); override;
+            destructor  Destroy(); override;
 
             function Select(const AColumns: array of string): TClickHouseQueryBuilder;
             function From(const ATable: string): TClickHouseQueryBuilder;
@@ -209,7 +209,7 @@ type
 
 implementation
 {----------------------------------------------------------------------------------------------------------------------}
-constructor TClickHouseResult.Create(AFormat: TClickHouseFormat = chfTSV; AWithNames: boolean = true);
+constructor TClickHouseResult.Create(AFormat: TClickHouseFormat = chfTSV; aWithNames: boolean = true);
 begin
         inherited Create();
 
@@ -217,27 +217,27 @@ begin
         FError := '';
 
         FFormat := AFormat;
-        FWithNames := AWithNames;
+        fWithNames := aWithNames;
 
-        FRowCount := 0;
+        frowCount := 0;
     try
         FColumns := TStringList.Create();
         FRows := TList.Create();
 
-        FSuccess := true;
+        fSuccess := true;
 
     except
         on e: Exception do
         begin
-            FSuccess := false;
-            FError := e.message;
+            fSuccess := false;
+            FError := e.Message;
         end;
     end;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 destructor TClickHouseResult.Destroy();
 var
-        Row: TStringList;
+        Row: TStringList = nil;
         i: longint;
 begin
         for i := 0 to (FRows.Count-1) do
@@ -256,7 +256,7 @@ end;
 {----------------------------------------------------------------------------------------------------------------------}
 procedure TClickHouseResult.ParseJSON();
 var
-        JSONData: TJSONData;
+        JSONData: TJSONData = nil;
         JSONObj, MetaObj: TJSONObject;
         JSONArray, RowArray: TJSONArray;
         Row: TStringList;
@@ -264,18 +264,16 @@ var
 begin
         if (FRawData = '') then
         begin
-            FSuccess := false;
+            fSuccess := false;
             FError := 'Empty JSON data';
             exit();
         end;
-
-        JSONData := nil;
     try
         JSONData := GetJSON(FRawData);
 
         if (JSONData = nil) then
         begin
-            FSuccess := false;
+            fSuccess := false;
             FError := 'Invalid JSON data: nil response from GetJSON';
             exit();
         end;
@@ -287,7 +285,7 @@ begin
             {---- Check for errors ----}
             if (JSONObj.IndexOfName('exception') >= 0) then
             begin
-                FSuccess := false;
+                fSuccess := false;
                 FError := JSONObj.GetPath('exception').AsString;
                 exit();
             end;
@@ -306,7 +304,7 @@ begin
                 end
                 else
                 begin
-                    FSuccess := false;
+                    fSuccess := false;
                     FError := 'Invalid JSON: meta is not an array';
                     exit();
                 end;
@@ -316,7 +314,7 @@ begin
                 if (JSONObj.GetPath('data') is TJSONArray) then
                 begin
                     JSONArray := TJSONArray(JSONObj.GetPath('data'));
-                    FRowCount := JSONArray.Count;
+                    frowCount := JSONArray.Count;
 
                     for i := 0 to (JSONArray.Count-1) do
                     begin
@@ -362,18 +360,18 @@ begin
                 end
                 else
                 begin
-                    FSuccess := false;
+                    fSuccess := false;
                     FError := 'Invalid JSON: data is not an array';
                     exit();
                 end;
 
             {---- Get rows count ----}
             if (JSONObj.IndexOfName('rows') >= 0) then
-                FRowCount := JSONObj.GetPath('rows').AsInteger;
+                frowCount := JSONObj.GetPath('rows').AsInteger;
         end
         else
         begin
-            FSuccess := false;
+            fSuccess := false;
             FError := 'Expected JSONObject, got ' + JSONData.ClassName;
         end;
 
@@ -384,7 +382,7 @@ end;
 {----------------------------------------------------------------------------------------------------------------------}
 procedure TClickHouseResult.ParseScalar();
 var
-        Row: TStringList;
+        Row: TStringList = nil;
 begin
         if (FRawData = '') then
         begin
@@ -392,17 +390,19 @@ begin
             FError := 'Empty Scalar data';
             exit();
         end;
-    try
+
         Row := TStringList.Create();
+        try
+            Row.Add(Trim(FRawData));
+            FRows.Add(Row);
 
-        Row.Add(Trim(FRawData));
-        FRows.Add(Row);
+            Row := nil; 
 
-        FSuccess := true;
-
-    finally
-        FRowCount := FRows.Count;
-    end;
+            FSuccess := true;
+        finally
+            FreeAndNil(Row); 
+            FRowCount := FRows.count;
+        end;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 procedure TClickHouseResult.ParseCSV();
@@ -459,7 +459,8 @@ begin
         end;
 
     finally
-        FRowCount := FRows.Count;
+        FRowCount := FRows.count;
+
         FreeAndNil(Lines);
         Row := nil;
     end;
@@ -521,7 +522,8 @@ begin
         end;
 
     finally
-        FRowCount := FRows.Count;
+        FRowCount := FRows.count;
+
         FreeAndNil(Lines);
         Row := nil;
     end;
@@ -556,14 +558,15 @@ function TClickHouseResult.ToJSON(): TJSONObject;
 var
         JSONArray: TJSONArray;
         JSONRow: TJSONObject;
-        Row: TStringList;
+        Row: TStringList = nil;
         i, j: longint;
 begin
-        result := TJSONObject.Create();
     try
-        JSONArray := TJSONArray.Create();
+        result := TJSONObject.Create();
 
         try
+            JSONArray := TJSONArray.Create();
+
             for i := 0 to (FRows.Count-1) do
             begin
                 Row := TStringList(FRows[i]);
@@ -600,7 +603,7 @@ end;
 {----------------------------------------------------------------------------------------------------------------------}
 function TClickHouseResult.ToStringList(): TStringList;
 var
-        Row: TStringList;
+        Row: TStringList = nil;
         LINE: string;
         i, j: longint;
 begin
@@ -634,7 +637,7 @@ end;
 {----------------------------------------------------------------------------------------------------------------------}
 procedure TClickHouseResult.Clear;
 var
-        Row: TStringList;
+        Row: TStringList = nil;
         i: longint;
 begin
         for i := 0 to (FRows.Count-1) do
@@ -700,43 +703,43 @@ end;
 {----------------------------------------------------------------------------------------------------------------------}
 function TClickHouseConnection.GetBaseURL(): string;
 begin
-        result := format('http://%s:%d/', [FHOST, FPort]);
+        Result := format('http://%s:%d/', [FHOST, FPort]);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function TClickHouseConnection.FormatToString(AFormat: TClickHouseFormat): string;
 begin
         case (AFormat) of
             chfJSON:
-                result := 'JSON';
+                Result := 'JSON';
             //----
             chfJSONCompact:
-                result := 'JSONCompact';
+                Result := 'JSONCompact';
             //----
             chfCSV:
-                result := 'CSV';
+                Result := 'CSV';
             //----
             chfTSV:
-                result := 'TSV';
+                Result := 'TSV';
             //----
             chfTabSeparated:
-                result := 'TabSeparated';
+                Result := 'TabSeparated';
             //----
             chfValues:
-                result := 'Values';
+                Result := 'Values';
             //----
             chfPretty:
-                result := 'Pretty';
+                Result := 'Pretty';
             //----
             chfVertical:
-                result := 'Vertical';
+                Result := 'Vertical';
             //----
             chfNative:
-                result := 'Native';
+                Result := 'Native';
             //----
             chfScalar:
-                result := 'Scalar';
+                Result := 'Scalar';
             else
-                result := 'JSON';
+                Result := 'JSON';
         end;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
@@ -745,12 +748,12 @@ var
         P: PChar;
         i: longint;
 begin
-        result := '';
+        Result := '';
 
-        SetLength(result, (Length(AStr) * 2)); { Максимум удвоение длины - пока так }
-        P := PChar(result);
+        SetLength(Result, (length(AStr) * 2)); { Максимум удвоение длины - пока так }
+        P := PChar(Result);
 
-        for i := 1 to Length(AStr) do
+        for i := 1 to length(AStr) do
         begin
             case (AStr[i]) of
                 '\':
@@ -800,12 +803,12 @@ begin
             end;
         end;
 
-        SetLength(result, (P - PChar(result)));
+        SetLength(Result, (P - PChar(Result)));
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function TClickHouseConnection.QuoteString(const AStr: string): string;
 begin
-        result := '''' + EscapeString(AStr) + '''';
+        Result := '''' + EscapeString(AStr) + '''';
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function TClickHouseConnection.EscapeIdentifier(const AStr: string): string;
@@ -814,9 +817,9 @@ var
         i: longint;
         NeedsQuoting: boolean;
 begin
-        if (Length(AStr) = 0) then
+        if (length(AStr) = 0) then
         begin
-            result := '``';
+            Result := '``';
             exit();
         end;
 
@@ -832,9 +835,9 @@ begin
 
         if (NeedsQuoting) then
         begin
-            SetLength(result, Length(AStr) * 2 + 2);
+            SetLength(Result, Length(AStr) * 2 + 2);
 
-            P := PChar(result);
+            P := PChar(Result);
             P^ := '`'; Inc(P);
 
             for i := 1 to Length(AStr) do
@@ -850,22 +853,23 @@ begin
 
             P^ := '`'; Inc(P);
 
-            SetLength(result, P - PChar(result));
+            SetLength(Result, P - PChar(Result));
         end
         else
-            result := AStr;
+            Result := AStr;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function TClickHouseConnection.ExecuteHTTP(const AMethod, AURL, AData, SFormat: string): string;
 var
         buf: array of byte = ();
-        i: longint;
+        i: longint = 0;
         fRes: boolean;
 begin
         result := '';
         FLastError := '';
 
         fhttp.Clear();
+        fhttp.Headers.Clear();
         fhttp.Timeout := FTimeout;
 
         fhttp.MimeType := 'text/plain; charset=UTF-8';
@@ -879,7 +883,7 @@ begin
         if (AData <> '') then
         begin
             fhttp.Document.Clear();
-            fhttp.Document.Write(pAnsiChar(AData)^, Length(AData));
+            fhttp.Document.Write(pAnsiChar(AData)^, length(AData));
         end;
 
         fhttp.Headers.Add('X-ClickHouse-Format: ' + SFormat);
@@ -908,8 +912,8 @@ begin
     except
         on e: exception do
         begin
-            FLastError := format('HTTP Request failed: %s', [e.message]);
             fRes := false;
+            FLastError := format('HTTP Request failed: %s', [e.Message]);
         end;
     end;
 
@@ -917,13 +921,11 @@ begin
         begin
             if (fhttp.Document.Size > 0) then
                 begin
-                    SetLength(buf, fhttp.Document.Size);
-                    fhttp.Document.Read(buf[0], fhttp.Document.Size);
-
-                    result := TEncoding.UTF8.GetString(buf);
+                    SetLength(Result, fhttp.Document.Size);
+                    fhttp.Document.Read(Result[1], Length(Result));
                 end;
 
-            FLastError := format('HTTP %d BODY: %s', [fhttp.resultCode, result]);
+            FLastError := format('HTTP %d BODY: %s', [fhttp.resultCode, Result]);
         end
         else
         begin
@@ -939,10 +941,10 @@ begin
             else
                 FLastError := format('HTTP Error %d: No response', [fhttp.resultCode]);
 
-            result := '';
+            Result := '';
         end;
 {$IFDEF DEBUG}
-        writeln('.executeHTTP: result: ', result);
+        writeln('.executeHTTP: Result: ', Result);
 {$ENDIF}
 end;
 {----------------------------------------------------------------------------------------------------------------------}
@@ -1037,7 +1039,7 @@ end;
 {----------------------------------------------------------------------------------------------------------------------}
 function TClickHouseConnection.ExecScalar(const AQuery: string): string;
 var
-        Res: TClickHouseResult;
+        Res: TClickHouseResult = nil;
 begin
         result := '';
 

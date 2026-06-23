@@ -115,7 +115,7 @@ end;
 function load_pid_file(const FName: string; var vpid: pid_t): boolean;
 var
         STR: string = '';
-        code: word = 0;;
+        code: word = 0;
 begin
         assignFile(pidFile, FName);
     {$I-}

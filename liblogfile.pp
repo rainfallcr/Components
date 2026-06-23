@@ -10,20 +10,23 @@ type
         t_log_file = class
         private
             fmtx: t_mutex;
+
             ffile,
-            dfile: TextFile;
+            dfile: Text;
+
             flevel: byte;
 
         public
-            constructor Create(ltz: word = 0);
+            constructor Create(ltz: byte = 0);
             destructor  Destroy; override;
 
-            function open(const FName: string; level: byte): bool;
-            function close(const Str: string): bool;
+            function Open(const FName: string; level: byte): bool;
+            function Close(const Str: string): bool;
 
             procedure set_level(level: byte);
-            procedure write(level: byte; const Str: string);
-            procedure dump(const Str: string);
+
+            procedure Write(level: byte; const Str: string);
+            procedure Dump(const Str: string);
 
         public
             tz: byte;
@@ -46,7 +49,7 @@ uses
 {----------------------------------------------------------------------------------------------------------------------}
 
 {---- t_log_file ------------------------------------------------------------------------------------------------------}
-constructor t_log_file.Create(ltz: word = 0);
+constructor t_log_file.Create(ltz: byte = 0);
 begin
         inherited Create();
 
@@ -61,16 +64,16 @@ begin
         inherited Destroy();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function t_log_file.open(const FName: string; level: byte): bool;
+function t_log_file.Open(const FName: string; level: byte): bool;
 begin
         fmtx.Lock();
 
-        assignFile(ffile, FName);
+        AssignFile(ffile, FName);
     {$I-}
-        if (fileExists(FName)) then
+        if (FileExists(FName)) then
             Append(ffile)
         else
-            reWrite(ffile);
+            ReWrite(ffile);
     {$I+}
         result := (IOResult() = 0);
 
@@ -80,14 +83,14 @@ begin
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function t_log_file.close(const Str: string): bool;
+function t_log_file.Close(const Str: string): bool;
 begin
-        self.write(LOG_SYS, Str);
+        self.Write(LOG_SYS, Str);
 
         fmtx.Lock();
 
     {$I-}
-        closeFile(ffile);
+        CloseFile(ffile);
     {$I+}
         result := (IOResult() = 0);
 
@@ -97,52 +100,53 @@ end;
 procedure t_log_file.set_level(level: byte);
 begin
         fmtx.Lock();
+
         flevel := level;
+
         fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure t_log_file.write(level: byte; const Str: string);
+procedure t_log_file.Write(level: byte; const Str: string);
 begin
         if (level <= flevel) then
         begin
+            fmtx.Lock();
         {$I-}
             writeln(ffile, format('[%s] %s', [datetime_to_str(get_datetime(tz)), Str]));
-            flush(ffile);
+            Flush(ffile);
         {$I+}
+            fmtx.unLock();
 
             if (IOResult() <> 0) then
                 writeln('<FLOG> [S] .write(ffile, ) failed! I/O Error!');
-
-            fmtx.unLock();
         end;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure t_log_file.dump(const Str: string);
+procedure t_log_file.Dump(const Str: string);
 var
-        FN, LSTR: string;
+        FName: string;
 begin
-        FN := 'dump-' + datetime_to_str(get_datetime(tz)) + '.log';
+        FName := 'dump-' + datetime_to_str(get_datetime(tz)) + '.log';
 
         fmtx.Lock();
 
-        assignFile(dfile, FN);
+        AssignFile(dfile, FName);
     {$I-}
-        if (fileExists(FN)) then
+        if (FileExists(FName)) then
             Append(dfile)
         else
-            reWrite(dfile);
+            ReWrite(dfile);
     {$I+}
 
         if (IOResult() = 0) then
         begin
         {$I-}
             writeln(dfile, format('[%s] %s', [datetime_to_str(get_datetime(tz)), Str]));
-            closeFile(dfile);
+            CloseFile(dfile);
         {$I+}
         end;
 
-        fmtx.unLock(
-        );
+        fmtx.unLock();
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 {----------------------------------------------------------------------------------------------------------------------}

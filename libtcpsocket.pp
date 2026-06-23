@@ -30,18 +30,18 @@ type
             ftlen,
             fclen: longint;
 
-            FBUF,
-            FMSG,
-            FTERM: string;
+            FBuf,
+            FMsg,
+            FTerm: string;
 
             fHeader: bool;
 
-            fhdl: ts_kvlist;
+            fhdl: ts_kvList;
 
             fso: t_sock_opt;
 
             fl_addr,
-            fr_addr: sockaddr;
+            fr_addr: sockAddr;
 
             fFDSet: TFDSet;
 
@@ -101,7 +101,7 @@ type
             property peer_port: longint read get_peer_port;
             property error: longint read fe;
             property EDESC: string read get_EDESC;
-            property TERM: string read FTERM write set_term;
+            property TERM: string read FTerm write set_term;
         end;
 {----------------------------------------------------------------------------------------------------------------------}
 {----------------------------------------------------------------------------------------------------------------------}
@@ -125,13 +125,13 @@ constructor t_tcp_socket.Create();
 begin
         inherited Create();
 
-        FBUF := '';
-        FMSG := '';
+        FBuf := '';
+        FMsg := '';
 
-        FTERM := CRLF;
+        FTerm := CRLF;
         ftlen := 2;
 
-        fhdl := ts_kvlist.Create();
+        fhdl := ts_kvList.Create();
         fhdl.Sorted := false;
         fhdl.upKeys := true;
         fhdl.Delimiter := CRLF;
@@ -282,13 +282,13 @@ begin
         result := 0;
         fe := 0;
 
-        if (FBUF = '') then
-            FBUF := recv_Buffer(timeout);
+        if (FBuf = '') then
+            FBuf := recv_Buffer(timeout);
 
-        if (fe = 0)and(FBUF <> '') then
+        if (fe = 0)and(FBuf <> '') then
         begin
-            result := byte(FBUF[1]);
-            system.Delete(FBUF, 1, 1);
+            result := byte(FBuf[1]);
+            system.Delete(FBuf, 1, 1);
         end;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
@@ -306,31 +306,37 @@ begin
             if (dl > C_64K) then
                 dl := C_64K;
 
-            if (dl > 0) then
-            begin
-                pbuf := pointer(pAnsiChar(buf) + dc);
+            pbuf := pointer(pAnsiChar(buf) + dc);
 
-                s := fpSend(fs, pbuf, dl, MSG_NOSIGNAL);
-                check_socket(s);
+            s := fpSend(fs, pbuf, dl, MSG_NOSIGNAL);
+
+            if (s < 0) then
+            begin
+                fe := fpGetErrNo();
 
                 if (fe = EsysEWOULDBLOCK) then
                 begin
                     if (can_Write(C_BLOCK_TIMEOUT)) then
                     begin
+                        fe := 0;
                         s := fpSend(fs, pbuf, dl, MSG_NOSIGNAL);
-                        check_socket(s);
+                        if (s < 0) then
+                        begin
+                            fe := fpGetErrNo();
+                            break;
+                        end;
                     end
                     else
+                    begin
                         fe := EsysETIMEDOUT;
-                end;
-
-                if (fe <> 0)or(s = INVALID_SOCKET) then
+                        break;
+                    end;
+                end
+                else
                     break;
+            end;
 
-                inc(dc, s);
-            end
-            else
-                break;
+            inc(dc, s);
         end;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
@@ -379,7 +385,7 @@ end;
 procedure t_tcp_socket.set_term(const TRM: string);
 begin
         ftlen := length(TRM);
-        FTERM := TRM;
+        FTerm := TRM;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 procedure t_tcp_socket.set_option(const opt: t_sock_opt);
@@ -392,53 +398,68 @@ begin
         if (fs = INVALID_SOCKET) then
             exit();
 
+        fe := 0;
+
         case (opt.option) of
             OPT_Linger:
             begin
                 l.l_onoff := byte(opt.enable);
                 l.l_linger := (opt.value div 1000);
-                fe := fpSetSockOpt(fs, SOL_SOCKET, SO_LINGER, @l, sizeOf(Linger));
+
+                if (fpSetSockOpt(fs, SOL_SOCKET, SO_LINGER, @l, sizeOf(Linger)) < 0) then
+                    fe := fpGetErrNo();
             end;
             //----
             OPT_RecvBuf:
-                fe := fpSetSockOpt(fs, SOL_SOCKET, SO_RCVBUF, @opt.value, sizeOf(opt.value));
+                if (fpSetSockOpt(fs, SOL_SOCKET, SO_RCVBUF, @opt.value, sizeOf(opt.value)) < 0) then
+                    fe := fpGetErrNo();
             //----
             OPT_SendBuf:
-                fe := fpSetSockOpt(fs, SOL_SOCKET, SO_SNDBUF, @opt.value, sizeOf(opt.value));
+                if (fpSetSockOpt(fs, SOL_SOCKET, SO_SNDBUF, @opt.value, sizeOf(opt.value)) < 0) then
+                    fe := fpGetErrNo();
             //----
             OPT_NonBlock:
             begin
                 x := byte(opt.enable);
-                fpIoCtl(fs, FIONBIO, @x);
-                fe := fpGetErrno();
+
+                if (fpIoCtl(fs, FIONBIO, @x) < 0) then
+                    fe := fpGetErrno();
             end;
             //----
             OPT_RecvTimeout:
             begin
                 tv.tv_sec := (opt.value div 1000);
                 tv.tv_usec := (opt.value mod 1000)*1000;
-                fe := fpSetSockOpt(fs, SOL_SOCKET, SO_RCVTIMEO, @tv, sizeOf(tv));
+
+                if (fpSetSockOpt(fs, SOL_SOCKET, SO_RCVTIMEO, @tv, sizeOf(tv)) < 0) then
+                    fe := fpGetErrNo();
             end;
             //----
             OPT_SendTimeout:
             begin
                 tv.tv_sec := (opt.value div 1000);
                 tv.tv_usec := (opt.value mod 1000)*1000;
-                fe := fpSetSockOpt(fs, SOL_SOCKET, SO_SNDTIMEO, @tv, sizeOf(tv));
+
+                if (fpSetSockOpt(fs, SOL_SOCKET, SO_SNDTIMEO, @tv, sizeOf(tv)) < 0) then
+                    fe := fpGetErrNo();
             end;
             //----
             OPT_Reuse:
             begin
                 x := byte(opt.enable);
                 pv := @x;
-                fe := fpSetSockOpt(fs, SOL_SOCKET, SO_REUSEADDR, pv, sizeOf(x));
+
+                if (fpSetSockOpt(fs, SOL_SOCKET, SO_REUSEADDR, pv, sizeOf(x)) < 0) then
+                    fe := fpGetErrNo();
             end;
             //----
             OPT_KeepAlive:
             begin
                 x := byte(opt.enable);
                 pv := @x;
-                fe := fpSetSockOpt(fs, SOL_SOCKET, SO_KEEPALIVE, pv, sizeOf(x));
+
+                if (fpSetSockOpt(fs, SOL_SOCKET, SO_KEEPALIVE, pv, sizeOf(x)) < 0) then
+                    fe := fpGetErrNo();
             end;
         end;
 end;
@@ -479,9 +500,9 @@ var
         FDSet: TFDSet;
         s: longint = 0;
 begin
-        FDSet := fFDSet;
-
         repeat
+            FDSet := fFDSet;
+
             s := fpSelect(fs+1, nil, @FDSet, nil, timeout);
 
             if (s < 0) then
@@ -498,39 +519,39 @@ var
 begin
         Result := '';
 
-        if (FBUF <> '') then
+        if (FBuf <> '') then
         begin
             if (fHEADER) then
             begin
-                i := pos(CRLF2, FBUF);
+                i := pos(CRLF2, FBuf);
 
                 if (i > 0) then
                 begin
-                    FMSG := copy(FBUF, 1, i+3);
-                    system.Delete(FBUF, 1, i+3);
+                    FMsg := copy(FBuf, 1, i+3);
+                    system.Delete(FBuf, 1, i+3);
 
-                    fhdl.Text := FMSG;
-                    fclen := strToIntDef(fhdl.KVAL['CONTENT-LENGTH'], 0);
+                    fhdl.Text := FMsg;
+                    fclen := strToIntDef(fhdl.KVAL['Content-Length'], 0);
 
                     if (fclen > 0) then
                         fHeader := false
                     else
-                        result := FMSG;
+                        Result := FMsg;
                 end;
             end;
 
-            if (not fHeader)and(length(FBUF) >= fclen) then
+            if (not fHeader)and(length(FBuf) >= fclen) then
             begin
-                FMSG += copy(FBUF, 1, fclen);
-                system.Delete(FBUF, 1, fclen);
+                FMsg += copy(FBuf, 1, fclen);
+                system.Delete(FBuf, 1, fclen);
 
                 fHeader := true;
-                result := FMSG;
+                Result := FMsg;
             end;
         end;
 
-        if (result = '') then
-            FBUF += recv_Buffer(timeout);
+        if (Result = '') then
+            FBuf += recv_Buffer(timeout);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function t_tcp_socket.recv_String(timeout: longint): string;
@@ -539,20 +560,22 @@ var
 begin
         Result := '';
 
-        if (pos(FTERM, FBUF) = 0) then
-            FBUF += recv_Buffer(timeout);
+        fe := 0;
+
+        if (pos(FTerm, FBuf) = 0) then
+            FBuf += recv_Buffer(timeout);
 
         if (fe = 0) then
         begin
-            i := pos(FTERM, FBUF);
+            i := pos(FTerm, FBuf);
 
             if (i > 0) then
             begin
                 dec(i);
 
-                Result := copy(FBUF, 1, i);
+                Result := copy(FBuf, 1, i);
 
-                system.delete(FBUF, 1, i+ftlen);
+                system.Delete(FBuf, 1, i+ftlen);
             end;
         end;
 end;
@@ -604,6 +627,8 @@ end;
 {----------------------------------------------------------------------------------------------------------------------}
 procedure t_tcp_socket.Listen();
 begin
+        fe := 0;
+
         if (fpListen(fs, SOMAXCONN) = 0) then
             get_addr()
         else
@@ -614,11 +639,11 @@ procedure t_tcp_socket.create_socket();
 begin
         fe := 0;
 
-        FBUF := '';
-        FMSG := '';
+        FBuf := '';
+        FMsg := '';
 
         fclen := 0;
-        fHEADER := true;
+        fHeader := true;
 
         if (fs = INVALID_SOCKET) then
         begin
@@ -637,8 +662,6 @@ end;
 procedure t_tcp_socket.close_socket();
 begin
         fe := 0;
-        while (fe = 0)and(buf_count() > 0) do
-            recv_Buffer(0);
 
         if (fs <> INVALID_SOCKET) then
         begin

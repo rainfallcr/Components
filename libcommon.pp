@@ -1,5 +1,6 @@
 unit libcommon;
 {$MODESWITCH ADVANCEDRECORDS}
+{$inline on}
 {----------------------------------------------------------------------------------------------------------------------}
 interface
 uses
@@ -10,30 +11,30 @@ type
         t_crc_table = array[0..255] of word;
 
         bool = type boolean;
-        //--------
+        {--------------------------------------------------------------------------------------------------------------}
         t_rbits = record
-            bitBuf: array of bool;
+            bitBuf: array of byte;
             bCount: longint;
             offset: byte;
 
-            function getByte: byte;
-            function getbits(len: byte): byte;
+            function getByte: byte; inline;
+            function getBits(len: byte): byte;
 
-            procedure init(len: longint);
-            procedure reset;
-            procedure setByte(value: byte);
-            procedure setbits(value, len: byte);
+            procedure Init(len: longint);
+            procedure Reset; inline;
+            procedure setByte(value: byte); inline;
+            procedure setBits(value, len: byte);
         end;
         {--------------------------------------------------------------------------------------------------------------}
         t_mutex = class
         private
             fcs: TRtlCriticalSection;
         public
-            constructor Create;
-            destructor  Destroy; override;
+            constructor Create();
+            destructor  Destroy(); override;
 
-            procedure lock; inline;
-            procedure unlock; inline;
+            procedure Lock(); inline;
+            procedure unLock(); inline;
         end;
 {----------------------------------------------------------------------------------------------------------------------}
 const
@@ -165,7 +166,7 @@ const
         S_LTYPE: array[bool] of string = ('FAILED','ACTIVE');
 
         URL_Chars: set of char = [#$00..#$20, '_', '<', '>', '"', '%', '{', '}', '|', '\', '^', '~', '[', ']', '`',
-                                  #$7f..#$ff, ';', '/', '?', ':', '@', '=', '&', '#', '+', ''''];
+                                  #$7F..#$FF, ';', '/', '?', ':', '@', '=', '&', '#', '+', ''''];
 
         {---- CRC Polynom for generated table ----}
         crc_polynom     = $8408;
@@ -174,8 +175,10 @@ var
         d_start_time: tdatetime;
         worker_event: pointer; { pRTLEvent! }
 
+        htob: array[0..255] of byte;
+
 {---- t_rbits fuctional ----}
-function getbit(value, index: byte): bool;
+function  getbit(value, index: byte): bool;
 procedure putbit(var value: byte; index: byte; fstate: bool);
 procedure putbitword(var value: word; index: byte; fstate: bool);
 
@@ -191,31 +194,25 @@ function datetime_to_sstr(const dt: tdatetime): string;
 function datetime_to_str(const dt: tdatetime): string;
 function datetime_to_otap(const dt: tdatetime): string;
 function time_to_str(const dt: tdatetime): string;
-//function utime_to_string(utime: int64): string;
 function convert_TOD(tod: longint): string;
 
 {---- String functions ----}
-function decodeLongInt(const VALUE: string; index: longint): longint;
-function codeLongInt(value: longint): string;
-function nibbleswap(const STR: string): string;
-function swapBytes(value: longint): longint;
-function xorString(const STR1: string; var STR2: string): string;
-function addchars(const STR: string; ch: char; len: longint): string;
-function addcharsr(const STR: string; ch: char; len: longint): string;
+function nibbleSwap(const STR: string): string;
+function addChars(const STR: string; ch: char; len: longint): string;
+function addCharsr(const STR: string; ch: char; len: longint): string;
 function addspaces(const STR: string; len: longint): string;
-function delchars(const STR: string; ch: char): string;
-function delspaces(const STR: string): string;
+function delChars(const STR: string; ch: char): string;
+function delSpaces(const STR: string): string;
 function encodeURL(const STR: string): string;
 function decodeURL(const STR: string): string;
-function URLDecode(const STR: string): string;
 function encodeByte(const STR: string): string;
 function hextostring(const STR: string): string;
-function stringtohex(const STR: string; fSP: bool = true): string;
-function inttohex(value: longint; len: byte = 2): shortstring;
+function stringToHex(const STR: string; fSP: bool = true): string;
+function intToHex(value: longint; len: byte = 2): shortstring;
 function clearDigits(const STR: string): string;
 function escapeQuoters(const STR: string): string;
-function upcase(const STR: string): string;
-function lowercase(const STR: string): string;
+function upCase(const STR: string): string;
+function lowerCase(const STR: string): string;
 function isDigitsOnly(const STR: string): bool;
 
 {---- Split command & key values functions ----}
@@ -234,172 +231,131 @@ function DESC_ERR(code: longint): string;
 {----------------------------------------------------------------------------------------------------------------------}
 implementation
 uses
-        sysutils, unix;
+        sysUtils, unix;
 {----------------------------------------------------------------------------------------------------------------------}
-constructor t_mutex.create;
-begin
-        inherited create();
-        initCriticalSection(fcs);
-end;
-{----------------------------------------------------------------------------------------------------------------------}
-destructor t_mutex.destroy;
-begin
-        doneCriticalSection(fcs);
-        inherited destroy();
-end;
-{----------------------------------------------------------------------------------------------------------------------}
-procedure t_mutex.lock;
-begin
-        enterCriticalSection(fcs);
-end;
-{----------------------------------------------------------------------------------------------------------------------}
-procedure t_mutex.unlock;
-begin
-        leaveCriticalSection(fcs);
-end;
-{----------------------------------------------------------------------------------------------------------------------}
-{----------------------------------------------------------------------------------------------------------------------}
-function t_rbits.getByte: byte;
-begin
-        result := getbits(8);
-end;
-{----------------------------------------------------------------------------------------------------------------------}
-function t_rbits.getbits(len: byte): byte;
+procedure createHtoBtable();
 var
         i: byte;
 begin
-        result := 0;
+        FillChar(htob, 256, 0);
 
-        if (offset = 0) then
+        for i := 0 to 9 do
+            htob[Ord('0') + i] := i;
+
+        for i := 0 to 5 do
         begin
-            if (length(bitbuf) < (bcount*8 - 8) + len) then
-                raise exception.create('getbits(): size mismatch!');
-
-            for i := 0 to (len - 1) do
-                putbit(result, i, bitbuf[8*bcount+i+(8-len)]);
-
-            offset := (8 - len);
-            if (offset = 0) then
-                inc(bcount);
-
-            exit();
-        end;
-
-        if (length(bitbuf) < (bcount*8 - offset) + len) then
-            raise exception.create('getbits(): size mismatch!');
-
-        if (len < offset) then
-        begin
-            for i := 0 to (len - 1) do
-                putbit(result, i, bitbuf[8*bcount+i+(offset-len)]);
-
-            offset := (offset - len);
-            if (offset = 0) then
-                inc(bcount);
-
-            exit();
-        end;
-
-        if (len > offset) then
-        begin
-            for i := (len - offset) to (len - 1) do
-                putbit(result, i, bitbuf[8*bcount+i-(len-offset)]);
-
-            inc(bcount);
-            for i := 0 to (len - offset - 1) do
-                putbit(result, i, bitbuf[8*bcount+i+(8-len+offset)]);
-
-            offset := (8 - len + offset);
-            if (offset = 0) then
-                inc(bcount);
-
-            exit();
-        end;
-
-        if (len = offset) then
-        begin
-            for i := 0 to (len - 1) do
-                putbit(result, i, bitbuf[8*bcount+i]);
-
-            inc(bcount);
-            offset := 0;
+            htob[Ord('A') + i] := 10 + i;
+            htob[Ord('a') + i] := 10 + i;
         end;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure t_rbits.init(len: longint);
-var
-        i: longint;
+{----------------------------------------------------------------------------------------------------------------------}
+constructor t_mutex.Create();
 begin
-        setlength(bitbuf, len);
+        inherited Create();
 
-        for i := 0 to (len-1) do
-            bitbuf[i] := false;
-
-        reset();
+        initCriticalSection(fcs);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure t_rbits.reset;
+destructor t_mutex.Destroy();
+begin
+        doneCriticalSection(fcs);
+
+        inherited Destroy();
+end;
+{----------------------------------------------------------------------------------------------------------------------}
+procedure t_mutex.Lock(); inline;
+begin
+        EnterCriticalSection(fcs);
+end;
+{----------------------------------------------------------------------------------------------------------------------}
+procedure t_mutex.unLock(); inline;
+begin
+        LeaveCriticalSection(fcs);
+end;
+{----------------------------------------------------------------------------------------------------------------------}
+{----------------------------------------------------------------------------------------------------------------------}
+function t_rbits.getByte: byte; inline;
+begin
+        result := getBits(8);
+end;
+{----------------------------------------------------------------------------------------------------------------------}
+function t_rbits.getBits(len: byte): byte;
+var
+        b: byte;
+begin
+        if (len = 0) then
+            exit(0);
+
+        if (bCount >= Length(bitBuf)) then
+            raise Exception.Create('getBits(): size mismatch!');
+
+        {---- Читаем байт и сдвигаем влево ----}
+        b := bitBuf[bCount] shl offset;
+
+        {---- Если биты пересекают границу байта, подтягиваем из следующего ----}
+        if (offset + len > 8)and(bCount + 1 < Length(bitBuf)) then
+            b := b or (bitBuf[bCount+1] shr (8 - offset));
+
+        {---- Выравниваем вправо ----}
+        result := b shr (8 - len);
+
+        {---- Обновляем курсор ----}
+        offset += len;
+
+        if (offset >= 8) then
+        begin
+            inc(bCount);
+            offset -= 8;
+        end;
+end;
+{----------------------------------------------------------------------------------------------------------------------}
+procedure t_rbits.Init(len: longint);
+begin
+        SetLength(bitBuf, (len div 8) + 1);
+        FillChar(bitBuf[0], Length(bitBuf), 0);
+
+        Reset();
+end;
+{----------------------------------------------------------------------------------------------------------------------}
+procedure t_rbits.Reset; inline;
 begin
         offset := 0;
-        bcount := 0;
+        bCount := 0;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure t_rbits.setByte(value: byte);
+procedure t_rbits.setByte(value: byte); inline;
 begin
-        setbits(value, 8);
+        setBits(value, 8);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-procedure t_rbits.setbits(value, len: byte);
+procedure t_rbits.setBits(value, len: byte);
 var
-        i: byte = 0;
+        b: byte;
 begin
-        if (length(bitbuf) < bcount*8 + len) then
-            raise exception.create('setbits(): size mismatch!');
-
-        if (offset = 0) then
-        begin
-            for i := 0 to (len - 1) do
-                bitbuf[8*bcount+i+(8-len)] := getbit(value, i);
-
-            {---- set how many bit are free! ----}
-            offset := (8 - len);
-            if (offset = 0) then
-                inc(bcount);
+        if (len = 0) then
             exit();
-        end;
 
-        if (len < offset) then
+        if (bCount >= Length(bitBuf)) then
+            raise Exception.Create('setBits(): size mismatch!');
+
+        {---- Выравниваем значение влево ----}
+        b := value shl (8 - len);
+
+        {---- Записываем в текущий байт ----}
+        bitBuf[bCount] := bitBuf[bCount] or (b shr offset);
+
+        {---- Если пересекли границу, пишем остаток в следующий байт ----}
+        if (offset + len > 8)and(bCount + 1 < Length(bitBuf)) then
+            bitBuf[bCount+1] := bitBuf[bCount+1] or (b shl (8-offset));
+
+        {---- Обновляем курсор ----}
+        offset += len;
+
+        if (offset >= 8) then
         begin
-            for i := 0 to (len - 1) do
-                bitbuf[8*bcount+i+(offset-len)] := getbit(value, i);
-
-            offset -= len;
-            if (offset = 0) then
-                inc(bcount);
-            exit();
-        end;
-
-        if (len > offset) then
-        begin
-            for i := (len - offset) to (len - 1) do
-                bitbuf[8*bcount+i-(len-offset)] := getbit(value, i);
-
-            inc(bcount);
-            for i := 0 to (len - offset - 1) do
-                bitbuf[8*bcount+i+(8-len+offset)] := getbit(value, i);
-
-            offset := (8 - len + offset);
-            if (offset = 0) then
-                inc(bcount);
-            exit();
-        end;
-
-        if (len = offset) then
-        begin
-            for i := 0 to (len - 1) do
-                bitbuf[8*bcount+i] := getbit(value, i);
-            inc(bcount);
-            offset := 0;
+            inc(bCount);
+            offset -= 8;
         end;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
@@ -411,12 +367,12 @@ end;
 {----------------------------------------------------------------------------------------------------------------------}
 procedure putbit(var value: byte; index: byte; fstate: bool);
 begin
-        value := (value and (($01 << index) xor $ff))or(byte(fstate) << index);
+        value := (value and (($01 << index) xor $FF))or(byte(fstate) << index);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 procedure putbitword(var value: word; index: byte; fstate: bool);
 begin
-        value := (value and (($01 << index) xor $ffff))or(word(fstate) << index);
+        value := (value and (($01 << index) xor $FFFF))or(word(fstate) << index);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 {----------------------------------------------------------------------------------------------------------------------}
@@ -445,7 +401,7 @@ begin
         if (s < 10) then
             SS := '0' + SS;
 
-        result :=  format('%s:%s:%s.%s', [SH,SM,SS,DS]);
+        Result := format('%s:%s:%s.%s', [SH, SM, SS, DS]);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function utime_to_datetime(utime: int64): tdatetime;
@@ -492,11 +448,11 @@ function datetime_trim(const DT: string): string;
 var
         i: longint;
 begin
-        result := '';
+        Result := '';
 
-        for i := 1 to length(DT) do
+        for i := 1 to Length(DT) do
             if (DT[i] in ['0'..'9']) then
-                result += DT[i];
+                Result += DT[i];
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function datetime_to_str(const dt: tdatetime): string;
@@ -520,128 +476,63 @@ begin
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 {----------------------------------------------------------------------------------------------------------------------}
-function decodeLongInt(const VALUE: string; index: longint): longint;
-var
-        len: longint;
-        x, y, xl, yl: byte;
-begin
-        len := length(VALUE);
-
-        if (len > index) then
-            x := byte(VALUE[index])
-        else
-            x := 0;
-
-        if (len >= (index+1)) then
-            y := byte(VALUE[index+1])
-        else
-            y := 0;
-
-        if (len >= (index+2)) then
-            xl := byte(VALUE[index+2])
-        else
-            xl := 0;
-
-        if (len >= (index+3)) then
-            yl := byte(VALUE[index+3])
-        else
-            yl := 0;
-
-        result := ((x*256 + y)*65536) + (xl*256 + yl);
-end;
-{----------------------------------------------------------------------------------------------------------------------}
-function codeLongInt(value: longint): string;
-var
-        x, y: word;
-begin
-        // this is fix for negative numbers on systems where longint = integer
-        x := (value shr 16) and integer($ffff);
-        y := value and integer($ffff);
-
-        setlength(result, 4);
-
-        result[1] := char(x div 256);
-        result[2] := char(x mod 256);
-        result[3] := char(y div 256);
-        result[4] := char(y mod 256);
-end;
-{----------------------------------------------------------------------------------------------------------------------}
-function nibbleswap(const STR: string): string;
+function nibbleSwap(const STR: string): string;
 var
         i: longint;
 begin
-        result := '';
+        Result := '';
 
         for i := 1 to (length(STR) div 2) do
-            result += STR[2*i] + STR[2*i-1];
+            Result += STR[2*i] + STR[2*i-1];
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function swapBytes(value: longint): longint;
+function addChars(const STR: string; ch: char; len: longint): string;
 var
-        S: string;
-        x, y, xl, yl: byte;
+        l: longint;
 begin
-        S := codeLongInt(value);
-        x := byte(s[4]);
-        y := byte(s[3]);
-        xl := byte(s[2]);
-        yl := byte(s[1]);
+        Result := STR;
+        l := Length(Result);
 
-        result := ((x*256 + y)*65536) + (xl*256 + yl);
+        if (l < len) then
+            Result := stringOfChar(ch, len-l) + Result;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function xorString(const STR1: string; var STR2: string): string;
+function addCharsR(const STR: string; ch: char; len: longint): string;
 var
-        i: integer;
+        l: longint;
 begin
-        result := '';
-        STR2 := addcharsr(STR2, #0, length(STR1));
+        Result := STR;
+        l := Length(Result);
 
-        for i := 1 to length(STR1) do
-            result += char(byte(STR1[i])xor(byte(STR2[i])));
-end;
-{----------------------------------------------------------------------------------------------------------------------}
-function addchars(const STR: string; ch: char; len: longint): string;
-var
-        i: longint;
-begin
-        result := STR;
-        i := length(result);
-
-        if (i < len) then
-            result := stringOfChar(ch, len-i) + result;
-end;
-{----------------------------------------------------------------------------------------------------------------------}
-function addcharsr(const STR: string; ch: char; len: longint): string;
-begin
-        result := STR;
-        if (length(STR) >= len) then
+        if (l >= len) then
             result := copy(STR, 1, len)
         else
-            result := STR + stringOfChar(ch, len-length(STR));
+            result := STR + stringOfChar(ch, len - l);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function addspaces(const STR: string; len: longint): string;
+function addSpaces(const STR: string; len: longint): string;
 begin
-        result := addcharsr(STR, SPACE, len);
+        Result := addCharsR(STR, SPACE, len);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function delchars(const STR: string; ch: char): string;
+function delChars(const STR: string; ch: char): string;
 var
         i, j: longint;
 begin
-        result := STR;
-        i := length(result);
+        Result := STR;
+        i := Length(Result);
 
         while (i > 0) do
         begin
-            if (ch = result[i]) then
+            if (ch = Result[i]) then
             begin
                 j := (i - 1);
-                while (j > 0)and(ch = result[j]) do
+
+                while (j > 0)and(ch = Result[j]) do
                     dec(j);
 
-                delete(result, j+1, i-j);
+                delete(Result, j+1, i-j);
+
                 i := (j + 1);
             end;
 
@@ -649,145 +540,127 @@ begin
         end;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function delspaces(const STR: string): string;
+function delSpaces(const STR: string): string;
 begin
-        result := delchars(STR, SPACE);
-        result := delchars(result, TAB);
+        Result := delChars(STR, SPACE);
+        Result := delChars(Result, TAB);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function encodeURL(const STR: string): string;
 var
-    i: longint;
-    ch: byte;
+        i, len, resLen: longint;
+        ch: char;
+        P: pchar;
 begin
-    result := '';
-    for i := 1 to length(STR) do
-        if STR[i] in ['A'..'Z', 'a'..'z', '0'..'9', '-', '_', '.', '~'] then
-            result += STR[i]
-        else
-        begin
-            // UTF-8 символ может занимать несколько байт
-            for ch in TEncoding.UTF8.GetBytes(STR[i]) do
-                result += '%' + IntToHex(ch, 2);
-        end;
-end;
-{----------------------------------------------------------------------------------------------------------------------}
-function URLDecode(const STR: string): string;
-var
-    i, j, len, hex, resLen: integer;
-    buf: array of char;
-begin
-    len := length(STR);
-    resLen := len;  // Максимальная длина результирующей строки не будет больше исходной
-    SetLength(buf, resLen);
+        len := Length(STR);
+        SetLength(Result, len * 3);
+        P := pchar(Result);
+        resLen := 0;
 
-    j := 0;
-    I := 1;
-
-    while (i <= len) do
-    begin
-        if (STR[I] = '%') then
+        for i := 1 to len do
         begin
-            if (i+2 <= Len)and(STR[i+1] in ['0'..'9', 'A'..'F', 'a'..'f'])and(STR[i+2] in ['0'..'9', 'A'..'F', 'a'..'f']) then
+            ch := STR[i];
+
+            if (ch in ['A'..'Z', 'a'..'z', '0'..'9', '-', '_', '.', '~']) then
             begin
-                // Преобразуем HEX в символ
-                Hex := StrToInt('$' + STR[i+1] + STR[i+2]);
-                buf[j] := chr(hex);
-                inc(j);
-                inc(I, 3);
-                continue;
-            end;
-        end
-        else
-            if (STR[i] = '+') then
-                buf[j] := ' '
+                P^ := ch; 
+                Inc(P);
+                Inc(resLen);
+            end
             else
-                buf[j] := STR[i];
+            begin
+                P^ := '%';
+                Inc(P);
 
-        inc(j);
-        inc(i);
-    end;
+                P^ := HEX_DIGITS[byte(ch) shr 4];
+                Inc(P);
 
-    SetString(result, pchar(@buf[0]), j);
+                P^ := HEX_DIGITS[byte(ch) and $0F];
+                Inc(P);
+
+                Inc(resLen, 3);
+            end;
+        end;
+
+        SetLength(Result, resLen);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function decodeURL(const STR: string): string;
 var
-        i, len: longint;
+        i, j, len: longint;
+        P: pchar;
 begin
-        result := '';
-        i := 0;
-        len := length(STR);
+        len := Length(STR);
+        SetLength(Result, len);
+        P := pchar(Result);
 
-        while (i < len) do
+        j := 0;
+        i := 1;
+
+        while (i <= len) do
         begin
-            inc(i);
-
-            if (STR[i] < SPACE)and((STR[i] <> LF)or(STR[i] <> CR)) then
-                continue;
-
-            if (STR[i] = '+') then
-            begin
-                result += SPACE;
-                continue;
-            end;
-
             if (STR[i] = '%') then
             begin
-                result += hextostring(copy(STR, i+1, 2));
-                inc(i, 2);
-                continue;
-            end;
+                if (i+2 <= len)and(STR[i+1] in ['0'..'9', 'A'..'F', 'a'..'f'])and(STR[i+2] in ['0'..'9', 'A'..'F', 'a'..'f']) then
+                begin
+                    P^ := char((htob[Ord(STR[i+1])] shl 4) or htob[Ord(STR[i+2])]);
+                    inc(P);
+                    inc(j);
+                    inc(i, 3);
+                end
+                else { something wrong! }
+                begin
+                    P^ := STR[i];
+                    inc(P);
+                    inc(j);
+                    inc(i);
+                end;
+            end
+            else
+            begin
+                if (STR[i] = '+') then
+                    P^ := ' '
+                else
+                    P^ := STR[i];
 
-            result += STR[i];
+                inc(P);
+                inc(j);
+                inc(i);
+            end
         end;
+
+        SetLength(Result, j);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function encodeByte(const STR: string): string;
 var
         i, len: longint;
 begin
-        result := '';
+        Result := '';
 
         len := (length(STR) div 2) - 1;
         for i := 0 to len do
-            result += '%' + copy(STR, 2*i+1, 2);
+            Result += '%' + copy(STR, 2*i+1, 2);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function hextobin(hval, bval: pchar; len: longint): longint;
 var
-        i, j, h, l: longint;
+        i: longint;
 begin
-        i := len;
-        while (i > 0) do
+        result := 0;
+
+        for i := 1 to len do
         begin
-            if (hval^ in ['a'..'f','A'..'F']) then
-                h := ((byte(hval^)+9) and $0f)
-            else
-                if (hval^ in ['0'..'9']) then
-                    h := (byte(hval^) and $0f)
-                else
-                    break;
+            if not (hval^ in ['0'..'9', 'a'..'f', 'A'..'F']) or
+               not ((hval+1)^ in ['0'..'9', 'a'..'f', 'A'..'F']) then
+               break;
 
-            inc(hval);
-            if (hval^ in ['a'..'f','A'..'F']) then
-                l := ((byte(hval^)+9) and $0f)
-            else
-                if (hval^ in ['0'..'9']) then
-                    l := (byte(hval^) and $0f)
-                else
-                    break;
-
-            j := l + (h << 4);
-            bval^ := char(j);
-
-            inc(hval);
+            bval^ := char((htob[byte(hval^)] shl 4) or htob[byte((hval+1)^)]);
+            inc(hval, 2);
             inc(bval);
 
-            dec(i);
+            inc(result);
         end;
-
-        result := (len - i);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function bintohex(bval, hval: pchar; len: longint; fSP: bool): longint;
@@ -799,8 +672,8 @@ begin
 
         for result := 1 to len do
         begin
-            hval[0] := HEX_DIGITS[(byte(bval^) shr 4)];
-            hval[1] := HEX_DIGITS[(byte(bval^) and 15)];
+            hval[0] := HEX_DIGITS[(byte(bval^) shr $04)];
+            hval[1] := HEX_DIGITS[(byte(bval^) and $0F)];
 
             inc(hval, c);
             inc(bval);
@@ -811,57 +684,57 @@ function hextostring(const STR: string): string;
 var
         len: longint;
 begin
-        result := '';
+        Result := '';
 
         len := (length(STR) div 2);
-        setlength(result, len);
+        SetLength(Result, len);
 
-        if (hextobin(pchar(STR), pchar(result), len) <> len) then
-            result := '';
+        if (hextobin(pchar(STR), pchar(Result), len) <> len) then
+            Result := '';
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function stringtohex(const STR: string; fSP: bool = true): string;
 var
         len: longint;
 begin
-        len := length(STR);
+        len := Length(STR);
 
         if (fSP) then
-            result := stringOfChar(#32, 3*len - 1)
+            Result := StringOfChar(#32, 3*len - 1)
         else
-            result := stringOfChar(#0, 2*len);
+            Result := StringOfChar(#0, 2*len);
 
-        bintohex(pchar(STR), pchar(result), len, fSP);
+        bintohex(pchar(STR), pchar(Result), len, fSP);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function inttohex(value: longint; len: byte = 2): shortstring;
 var
         i: longint;
 begin
-        result[0] := char(len);
+        Result[0] := char(len);
 
         for i := len downto 1 do
         begin
-            result[i] := HEX_DIGITS[value and $0f];
+            Result[i] := HEX_DIGITS[value and $0f];
             value := (value >> 4);
         end;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function leftstr(const STR: string; len: longint): string;
+function leftStr(const STR: string; len: longint): string;
 begin
-        result := copy(STR, 1, len);
+        Result := copy(STR, 1, len);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function rightstr(const STR: string; len: longint): string;
+function rightStr(const STR: string; len: longint): string;
 var
         l: longint;
 begin
-        l := length(STR);
+        l := Length(STR);
 
         if (len > l) then
             len := l;
 
-        result := copy(STR, l - len + 1, len);
+        Result := copy(STR, l - len + 1, len);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function isDigitsOnly(const STR: string): bool;
@@ -874,7 +747,7 @@ begin
         i := 1;
         result := true;
 
-        while (result)and(i <= length(STR)) do
+        while (result)and(i <= Length(STR)) do
         begin
             result := (STR[i] in ['0'..'9']);
             inc(i);
@@ -886,67 +759,65 @@ function clearDigits(const STR: string): string;
 var
         i: longint;
 begin
-        result := '';
+        Result := '';
 
-        for i := 1 to length(STR) do
+        for i := 1 to Length(STR) do
             if (STR[i] in ['0'..'9']) then
-                result += STR[i];
+                Result += STR[i];
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function escapeQuoters(const STR: string): string;
 var
         i: longint;
 begin
-        result := '';
-        for i := 1 to length(STR) do
+        Result := '';
+
+        for i := 1 to Length(STR) do
         begin
             if (STR[i] = '"') then
-                result += '\';
-            result += STR[i];
+                Result += '\';
+
+            Result += STR[i];
         end;
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function upcase(const STR: string): string;
+function upCase(const STR: string): string;
 var
-        i, len: longint;
+        i: longint;
 begin
-        len := length(STR);
-        result := STR;
+        Result := STR;
 
-        for i := 1 to len do
-            if (STR[i] in ['a'..'z']) then
-                result[i] := char(byte(STR[i]) xor $20)
-            else
-                result[i] := STR[i];
+        for i := 1 to Length(Result) do
+            if (Result[i] in ['a'..'z']) then
+                Result[i] := char(byte(Result[i]) xor $20);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
-function lowercase(const STR: string): string;
+function lowerCase(const STR: string): string;
 var
-        i, len: longint;
+        i: longint;
 begin
-        len := length(STR);
-        result := STR;
+        Result := STR;
 
-        for i := 1 to len do
-            if (STR[i] in ['A'..'Z']) then
-                result[i] := char(byte(STR[i]) xor $20)
-            else
-                result[i] := STR[i];
+        for i := 1 to Length(Result) do
+            if (Result[i] in ['A'..'Z']) then
+                Result[i] := char(byte(Result[i]) xor $20);
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 function get_param(const SPLIT: string; var VSTR: string): string;
 var
-        x: longint;
+        x, l: longint;
 begin
         x := pos(SPLIT, VSTR);
         if (x > 0) then
         begin
-            result := copy(VSTR, 1, x-1);
-            VSTR := copy(VSTR, x+1, length(VSTR)-x);
+            Result := copy(VSTR, 1, x-1);
+
+            l := Length(SPLIT);
+            VSTR := copy(VSTR, x + l, Length(VSTR) - x - l + 1);
         end
         else
         begin
-            result := VSTR;
+            Result := VSTR;
             VSTR := '';
         end;
 end;
@@ -957,7 +828,7 @@ var
            i: longint;
 begin
         {---- Check for exit or quit command ----}
-        VCMD := lowercase(copy(VSTR, 1, 4));
+        VCMD := lowerCase(copy(VSTR, 1, 4));
         case (VCMD) of
             'quit',
             'exit':
@@ -967,7 +838,7 @@ begin
         {---- Check for HTTP request ----}
         if (copy(VSTR, 1, 5) = 'GET /')and(pos('HTTP', VSTR) <> 0) then
         begin
-            case (lowercase(copy(VSTR, 1, 13))) of
+            case (lowerCase(copy(VSTR, 1, 13))) of
                 'get /showstat':
                     VCMD := 'httpstat';
                 //----
@@ -988,7 +859,7 @@ begin
         if (i = 0) then
             exit(false);
 
-        LSTR := lowercase(copy(VSTR, 1, i-1));
+        LSTR := lowerCase(copy(VSTR, 1, i-1));
         delete(VSTR, 1, i);
 
         i := pos(':', LSTR);
@@ -996,7 +867,7 @@ begin
             exit(false);
 
         VCMD := copy(LSTR, 1, i-1);
-        VVAL := copy(LSTR, i+1, length(LSTR)-i);
+        VVAL := copy(LSTR, i+1, Length(LSTR)-i);
 
         result := true;
 end;
@@ -1005,9 +876,14 @@ function split_params(const STR: string; var params: TStringList): bool;
 var
         len: longint;
 begin
-        params.clear;
-        len := length(STR);
-        if (STR[len] = params.delimiter) then
+        len := Length(STR);
+
+        if (len = 0) then
+            exit(false);
+
+        params.Clear();
+
+        if (STR[len] = params.Delimiter) then
             dec(len);
 
         params.delimitedText := copy(STR, 1, len);
@@ -1041,7 +917,7 @@ var
 begin
         result := init_fcs;
 
-        for i := 1 to (length(DATA)) do
+        for i := 1 to (Length(DATA)) do
             result := (result shr 8) xor table[(result xor byte(DATA[i])) and $FF];
 
         result := (result xor xor_out);
@@ -1117,4 +993,6 @@ begin
 end;
 {----------------------------------------------------------------------------------------------------------------------}
 {----------------------------------------------------------------------------------------------------------------------}
+initialization
+        createHtoBtable();
 end.
